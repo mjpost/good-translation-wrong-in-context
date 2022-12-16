@@ -7,6 +7,11 @@ import numpy as np
 import json
 import argparse
 
+from sacremoses import MosesTokenizer
+
+tokenizer = MosesTokenizer(lang="ru")
+
+
 GTWIC_DIR = os.path.join(os.path.dirname(__file__), "..")
 
 
@@ -20,13 +25,18 @@ def get_scores(json_data, scores):
 
     return res
 
+
 def evaluate(repo_dir, testset_name, scores_fname):
     json_data = json.load(open("{}/consistency_testsets/{}.json".format(repo_dir, testset_name)))
     scores = list(map(lambda x: float(x.strip().split()[0]), open(scores_fname)))
     assert sum([len(elem['dst']) for elem in json_data]) == len(scores), "Number of lines in scores does not match number of test examples"
 
     group_scores = get_scores(json_data, scores)
-    result = {'total': np.mean(group_scores)}
+    result = {
+        "correct": sum(group_scores),
+        "count": len(group_scores),
+        'total': np.mean(group_scores),
+    }
 
     if not testset_name in ['ellipsis_vp', 'ellipsis_infl']:
         scores_by_distance = {}
@@ -35,6 +45,7 @@ def evaluate(repo_dir, testset_name, scores_fname):
                                                     if json_data[i]['ctx_dist'] == distance])
         result['by_distance'] = scores_by_distance
     return result
+
 
 def evaluate_gen(repo_dir, testset_name, output_fname):
     json_data = json.load(open("{}/consistency_testsets/{}.json".format(repo_dir, testset_name)))
@@ -51,17 +62,25 @@ def evaluate_gen(repo_dir, testset_name, output_fname):
     }
 
     for elem in json_data:
-        good = elem["correct_phrase"]
-        bads = elem["incorrect_phrases"]
+        good = elem["correct_phrase"].lower()
+        bads = list(map(str.lower, elem["incorrect_phrases"]))
 
         dist = elem["ctx_dist"]
 
-        output = outputs[0].split("<eos>")[-1]
+        # extract the sentence and its tokens
+        payload = outputs[0].split("<eos>")[-1].lower()
+        tokens = tokenizer.tokenize(payload)
+
+        # trim duplicate outputs
         outputs = outputs[len(elem["dst"]):]
 
-        if good in output and all([bad not in output for bad in bads]):
+        if good in tokens and all([bad not in tokens for bad in bads]):
             result["correct"] += 1
             distances[dist]["correct"] += 1
+        else:
+            print(payload)
+            print(f"-> {good}?", good in tokens)
+            print(f"-> {bads}?", any([bad in tokens for bad in bads]))
 
         result["count"] += 1
         distances[dist]["count"] +=1
@@ -76,7 +95,9 @@ def evaluate_gen(repo_dir, testset_name, output_fname):
     return result
 
 def print_results(testset_name, result):
-    print("Test set: ", testset_name)
+    print("Test set:", testset_name)
+    print("Correct:", result["correct"])
+    print("Count:", result["count"])
     print("Total accuracy: ", result['total'])
     if 'by_distance' in result:
         print('\nAccuracy for different distances between sentences requiring consistency.')
