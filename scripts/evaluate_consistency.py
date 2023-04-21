@@ -3,6 +3,7 @@
 # Author: Lena Voita
 
 import os
+import math
 import numpy as np
 import json
 import argparse
@@ -67,9 +68,20 @@ def evaluate_gen(repo_dir, testset_name, output_fname):
 
         dist = elem["ctx_dist"]
 
-        # extract the sentence and its tokens
-        payload = outputs[0].split("<eos>")[-1].lower()
-        tokens = tokenizer.tokenize(payload)
+        if "<eos>" in outputs[0]:  # document mode
+            # extract the sentence and its tokens
+            payload = outputs[0].split("<eos>")[-1].lower()
+            tokens = tokenizer.tokenize(payload)
+        else:  # sent* mode
+            source = elem["src"]
+            source_pct = len(source.split("_eos")[-1].split()) / len(source.split())
+            payload_tokens = tokenizer.tokenize(outputs[0].lower())
+            total_tokens = len(payload_tokens)
+            num_tokens = math.ceil(source_pct * total_tokens)
+            payload_tokens = payload_tokens[::-1][:num_tokens][::-1]
+            payload = " ".join(payload_tokens)
+            tokens = tokenizer.tokenize(payload)
+            print(f"Selecting final {source_pct*100:.1f}% tokens = {num_tokens} / {total_tokens}")
 
         # trim duplicate outputs
         outputs = outputs[len(elem["dst"]):]
