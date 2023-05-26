@@ -48,7 +48,7 @@ def evaluate(repo_dir, testset_name, scores_fname):
     return result
 
 
-def evaluate_gen(repo_dir, testset_name, output_fname):
+def evaluate_gen(repo_dir, testset_name, output_fname, proportional=False):
     json_data = json.load(open("{}/consistency_testsets/{}.json".format(repo_dir, testset_name)))
     outputs = list(map(str.strip, open(output_fname).readlines()))
 
@@ -68,20 +68,22 @@ def evaluate_gen(repo_dir, testset_name, output_fname):
 
         dist = elem["ctx_dist"]
 
-        if "<eos>" in outputs[0]:  # document mode
-            # extract the sentence and its tokens
+        # extract the sentence and its tokens
+        if proportional:
+            src = elem["src"].split(" _eos ")[-1]
+            payload_pct = len(src.split()) / len(elem["src"].split()) * 1.5
+
+            payload = outputs[0]
+            output_len = len(payload.split())
+            num_output_tokens = int(output_len * payload_pct * 1.5)
+
+            payload = " ".join(payload.split()[-num_output_tokens:])
+
+            print(f"{num_output_tokens} / {output_len} = {payload}")
+        else:
             payload = outputs[0].split("<eos>")[-1].lower()
-            tokens = tokenizer.tokenize(payload)
-        else:  # sent* mode
-            source = elem["src"]
-            source_pct = len(source.split("_eos")[-1].split()) / len(source.split())
-            payload_tokens = tokenizer.tokenize(outputs[0].lower())
-            total_tokens = len(payload_tokens)
-            num_tokens = math.ceil(source_pct * total_tokens)
-            payload_tokens = payload_tokens[::-1][:num_tokens][::-1]
-            payload = " ".join(payload_tokens)
-            tokens = tokenizer.tokenize(payload)
-            print(f"Selecting final {source_pct*100:.1f}% tokens = {num_tokens} / {total_tokens}")
+
+        tokens = tokenizer.tokenize(payload)
 
         # trim duplicate outputs
         outputs = outputs[len(elem["dst"]):]
@@ -89,10 +91,10 @@ def evaluate_gen(repo_dir, testset_name, output_fname):
         if good in tokens and all([bad not in tokens for bad in bads]):
             result["correct"] += 1
             distances[dist]["correct"] += 1
-        else:
-            print(payload)
-            print(f"-> {good}?", good in tokens)
-            print(f"-> {bads}?", any([bad in tokens for bad in bads]))
+        # else:
+        #     print(payload)
+        #     print(f"-> {good}?", good in tokens)
+        #     print(f"-> {bads}?", any([bad in tokens for bad in bads]))
 
         result["count"] += 1
         distances[dist]["count"] +=1
@@ -128,10 +130,11 @@ if __name__ == "__main__":
                         help="Test generative ability")
     parser.add_argument('--scores', '-s', type=str, required=True,
                         help="Loss of your model on the test set examples, one score per line")
-
+    parser.add_argument("--proportional", action="store_true")
     args = parser.parse_args()
+
     if args.gen:
-        result = evaluate_gen(args.repo_dir, args.test, args.scores)
+        result = evaluate_gen(args.repo_dir, args.test, args.scores, proportional=args.proportional)
     else:
         result = evaluate(args.repo_dir, args.test, args.scores)
     print_results(args.test, result)
